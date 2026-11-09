@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FactKG verification lab</title>
+<style>
+:root{--bg:#eef1f5;--ink:#14202b;--mute:#5b6b7a;--line:#cfd7df;--ok:#0f766e;--no:#b4412f;--card:#fff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "Segoe UI",system-ui,sans-serif}
+header{padding:1.2rem 2rem .6rem}h1{margin:0;font:700 1.5rem Georgia,serif}header p{margin:.2rem 0 0;color:var(--mute);max-width:62ch}
+nav{display:flex;gap:.25rem;padding:0 2rem;border-bottom:1px solid var(--line)}
+nav button{border:0;background:none;padding:.6rem 1rem;font:inherit;color:var(--mute);cursor:pointer;border-bottom:3px solid transparent}
+nav button[aria-selected=true]{color:var(--ink);border-color:var(--ink);font-weight:600}
+main{display:grid;grid-template-columns:minmax(260px,340px) 1fr;gap:1.5rem;padding:1.5rem 2rem}
+@media(max-width:820px){main{grid-template-columns:1fr;padding:1rem}}
+.panel{display:none}.panel.on{display:contents}
+aside{display:flex;flex-direction:column;gap:.7rem}
+label{font-size:.9rem;color:var(--mute)}select,textarea,button.act{font:inherit;padding:.5rem .6rem;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink);width:100%}
+textarea{min-height:7rem;resize:vertical}button.act{background:var(--ink);color:#fff;border-color:var(--ink);cursor:pointer}
+button.act:disabled{opacity:.5}button:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid #6aa7ff;outline-offset:1px}
+section.out{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:1rem 1.2rem;min-height:300px}
+.claim{font:1.15rem/1.4 Georgia,serif;margin:0 0 .6rem}
+.badge{display:inline-block;padding:.1rem .6rem;border-radius:99px;color:#fff;font-weight:600;font-size:.85rem}
+.SUPPORTED{background:var(--ok)}.REFUTED{background:var(--no)}.NONE{background:var(--mute)}
+.row{display:flex;flex-wrap:wrap;gap:.5rem 1.2rem;align-items:center;margin:.4rem 0}
+svg{width:100%;height:auto;background:#f8fafc;border:1px solid var(--line);border-radius:6px}
+.facts{font:.82rem/1.5 Consolas,monospace;columns:2 320px;margin:.6rem 0;padding-left:1.2rem}
+.reason{white-space:pre-wrap;color:var(--mute);border-left:3px solid var(--line);padding-left:.8rem;margin:.6rem 0}
+.err{color:var(--no);font-weight:600}table{border-collapse:collapse;width:100%;font-size:.9rem}td,th{border-bottom:1px solid var(--line);padding:.3rem .4rem;text-align:left}
+.note{font-size:.82rem;color:var(--mute)}
+</style></head><body>
+<header><h1>FactKG verification lab</h1>
+<p>Check a claim against DBpedia 2015: entities are linked, evidence triples are retrieved and ranked, and a local Llama explains its verdict.</p></header>
+<nav role="tablist"><button role="tab" data-t="bench" aria-selected="true">Benchmark</button><button role="tab" data-t="sand" aria-selected="false">Sandbox</button><button role="tab" data-t="adv" aria-selected="false">Adversarial</button></nav>
+<main>
+<div class="panel on" id="bench"><aside>
+<label for="type">Reasoning type</label><select id="type"><option value="">Any</option><option>num1</option><option>num2</option><option>multi claim</option><option>existence</option><option>multi hop</option><option>negation</option></select>
+<button class="act" id="draw">Draw a random claim</button>
+<p class="note">Shows the saved Phase 2 evidence and, if available, the saved Llama verdict. Gold label is revealed with the result.</p></aside>
+<section class="out" id="o-bench"><p class="note">Draw a claim to see its evidence graph.</p></section></div>
+
+<div class="panel" id="sand"><aside>
+<label for="c-sand">Your claim</label><textarea id="c-sand" placeholder="Adam McQuaid was born in Pleasant Springs, Wisconsin."></textarea>
+<button class="act" id="go-sand">Verify claim</button>
+<p class="note">Runs the full pipeline live. The first call loads the knowledge graph and can take several minutes.</p></aside>
+<section class="out" id="o-sand"><p class="note">Type a claim and verify it. Entity linking, retrieved evidence and the reasoning appear here.</p></section></div>
+
+<div class="panel" id="adv"><aside>
+<button class="act" id="src">1. Draw a SUPPORTED claim</button>
+<label for="mode">Attack</label><select id="mode"><option value="linguistic">Linguistic complexity (should stay SUPPORTED)</option><option value="semantic">Semantic swap (becomes REFUTED)</option><option value="multihop">Multi-hop confounding (becomes REFUTED)</option></select>
+<button class="act" id="gen">2. Generate attack</button>
+<label for="c-adv">Attack claim (editable)</label><textarea id="c-adv"></textarea>
+<button class="act" id="go-adv">3. Verify attack</button>
+<table id="tally"><tr><th>Mode</th><th>Runs</th><th>Fooled</th><th>Rate</th></tr></table>
+<p class="note">Expected labels are assumed from the attack type and not validated against the graph.</p></aside>
+<section class="out" id="o-adv"><p class="note">Draw a source claim, generate an attack, then verify it.</p></section></div>
+</main>
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const nice=s=>String(s).replace(/^"|"$/g,'').replace(/_/g,' ');
+const rel=s=>s.replace(/([a-z0-9])([A-Z])/g,'$1 $2').toLowerCase();
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('nav button').forEach(x=>x.setAttribute('aria-selected',x===b));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('on',p.id===b.dataset.t));});
+async function api(url,body){
+  try{const r=await fetch(url,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{});
+    const j=await r.json();if(!r.ok)throw new Error(j.error||r.statusText);return j;}
+  catch(e){return {error:e.message};}}
+function layout(triples,seeds){
+  const nodes=[...new Set(triples.flatMap(t=>[t[0],t[2]]))].map((id,i,a)=>({id,x:400+220*Math.cos(6.283*i/a.length),y:250+170*Math.sin(6.283*i/a.length),vx:0,vy:0}));
+  const ix=Object.fromEntries(nodes.map((n,i)=>[n.id,i]));
+  for(let it=0;it<250;it++){
+    for(const a of nodes)for(const b of nodes)if(a!==b){let dx=a.x-b.x,dy=a.y-b.y,d=Math.hypot(dx,dy)||1,f=2600/(d*d);a.vx+=dx/d*f;a.vy+=dy/d*f;}
+    for(const t of triples){const a=nodes[ix[t[0]]],b=nodes[ix[t[2]]],dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy)||1,f=(d-110)*.02;a.vx+=dx/d*f;a.vy+=dy/d*f;b.vx-=dx/d*f;b.vy-=dy/d*f;}
+    for(const n of nodes){n.vx+=(400-n.x)*.004;n.vy+=(250-n.y)*.004;n.x=Math.min(770,Math.max(30,n.x+n.vx*.5));n.y=Math.min(470,Math.max(30,n.y+n.vy*.5));n.vx*=.6;n.vy*=.6;}}
+  return {nodes,ix};}
+function graph(triples,seeds){
+  if(!triples.length)return '<p class="note">No evidence triples were retrieved.</p>';
+  const {nodes,ix}=layout(triples,seeds),S=new Set(seeds||[]);
+  const edges=triples.map(t=>{const a=nodes[ix[t[0]]],b=nodes[ix[t[2]]];
+    return `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="#9aa8b6" stroke-width="1.4"/><text x="${(a.x+b.x)/2}" y="${(a.y+b.y)/2-3}" font-size="10" fill="#5b6b7a" text-anchor="middle">${esc(rel(t[1]))}</text>`}).join('');
+  const dots=nodes.map(n=>`<circle cx="${n.x}" cy="${n.y}" r="${S.has(n.id)?9:6}" fill="${S.has(n.id)?'#14202b':'#fff'}" stroke="#14202b" stroke-width="1.5"/><text x="${n.x}" y="${n.y+(S.has(n.id)?22:18)}" font-size="11" text-anchor="middle" fill="#14202b">${esc(nice(n.id).slice(0,24))}</text>`).join('');
+  return `<svg viewBox="0 0 800 500" role="img" aria-label="Evidence graph">${edges}${dots}</svg><p class="note">Filled nodes are the seed entities. ${triples.length} triples shown.</p>`;}
+function show(el,d,extra=''){
+  if(d.error){el.innerHTML=`<p class="err">${esc(d.error)}</p>`;return;}
+  const ent=d.entities?`<p class="note">Entities: ${d.entities.map(e=>`${esc(e.mention)} → <b>${esc(e.canonical||'unmatched')}</b> (${esc(e.method)})`).join('; ')}${d.n_candidates?` · ${d.n_candidates} candidate triples`:''}</p>`:'';
+  const gold=d.gold?` <span class="note">gold:</span> <span class="badge ${d.gold}">${d.gold}</span>`:'';
+  el.innerHTML=`<p class="claim">${esc(d.claim)}</p><div class="row"><span class="note">verdict:</span> <span class="badge ${d.pred||'NONE'}">${d.pred||'no verdict'}</span>${gold}${d.types?`<span class="note">${esc(d.types.filter(t=>!/^(written|coll|substitution)/.test(t)).join(', '))}</span>`:''}</div>${extra}${ent}${graph(d.triples||[],d.seeds)}<ul class="facts">${(d.triples||[]).map(t=>`<li>${esc(nice(t[0]))} | ${esc(rel(t[1]))} | ${esc(nice(t[2]))}</li>`).join('')}</ul>${d.response?`<div class="reason">${esc(d.response)}</div>`:''}`;}
+function busy(b,on){b.disabled=on;}
+$('#draw').onclick=async e=>{busy(e.target,1);$('#o-bench').innerHTML='<p class="note">Loading…</p>';
+  show($('#o-bench'),await api('/api/sample?type='+encodeURIComponent($('#type').value)));busy(e.target,0);};
+$('#go-sand').onclick=async e=>{busy(e.target,1);$('#o-sand').innerHTML='<p class="note">Running the pipeline…</p>';
+  show($('#o-sand'),await api('/api/verify',{claim:$('#c-sand').value}));busy(e.target,0);};
+$('#src').onclick=async e=>{busy(e.target,1);const d=await api('/api/sample?label=supported');
+  if(d.error)$('#o-adv').innerHTML=`<p class="err">${esc(d.error)}</p>`;else{$('#c-adv').value=d.claim;show($('#o-adv'),d);}busy(e.target,0);};
+$('#gen').onclick=async e=>{busy(e.target,1);const d=await api('/api/attack',{claim:$('#c-adv').value,mode:$('#mode').value});
+  if(d.error)$('#o-adv').innerHTML=`<p class="err">${esc(d.error)}</p>`;else{$('#c-adv').value=d.claim;$('#c-adv').dataset.expected=d.expected;}busy(e.target,0);};
+const tally={};
+$('#go-adv').onclick=async e=>{busy(e.target,1);$('#o-adv').innerHTML='<p class="note">Running the pipeline…</p>';
+  const d=await api('/api/verify',{claim:$('#c-adv').value}),m=$('#mode').value,exp=$('#c-adv').dataset.expected||'REFUTED';
+  if(!d.error){const t=tally[m]=tally[m]||{n:0,f:0};t.n++;if(d.pred!==exp)t.f++;
+    $('#tally').innerHTML='<tr><th>Mode</th><th>Runs</th><th>Fooled</th><th>Rate</th></tr>'+Object.entries(tally).map(([k,v])=>`<tr><td>${k}</td><td>${v.n}</td><td>${v.f}</td><td>${(100*v.f/v.n).toFixed(0)}%</td></tr>`).join('');}
+  show($('#o-adv'),d,`<p class="note">Expected: <b>${exp}</b>. ${d.pred&&d.pred!==exp?'The pipeline was fooled.':''}</p>`);busy(e.target,0);};
+</script></body></html>
